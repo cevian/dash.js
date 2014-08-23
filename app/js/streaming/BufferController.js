@@ -224,7 +224,26 @@ MediaPlayer.dependencies.BufferController = function () {
 			if (this.fragmentController.isInitializationRequest(request)) {
 				onInitializationLoaded.call(this, request, response);
 			} else {
-				onMediaLoaded.call(this, request, response);
+        if (request instanceof MediaPlayer.vo.PipelinedSegmentRequest) {
+          var index = 0;
+          for (var i = 0; i< request.requests.length; i++) {
+            var subrequest = request.requests[i],
+            subrange = subrequest.range.split("-"),
+            start = Number(subrange[0]),
+            end = Number(subrange[1]),
+            diff = end-start,
+            subresponse = {data:response.data.slice(index, index+diff+1), request:subrequest}
+            ;
+
+            index = index+diff+1
+
+				    onMediaLoaded.call(this, subrequest, subresponse);
+
+            
+          }
+        } else {
+				  onMediaLoaded.call(this, request, response);
+        }
 			}
         },
 
@@ -846,6 +865,60 @@ MediaPlayer.dependencies.BufferController = function () {
             return initializationPromise;
         },
 
+
+        createPipelinedRequest = function(requests) {
+            var request = new MediaPlayer.vo.PipelinedSegmentRequest(),
+            ranges_start,
+            ranges_end,
+            duration = 0,
+            self=this;
+
+            for (var i=0; i < requests.length; i++) {
+              duration += requests[i].duration
+            }
+
+            request.requests = requests;
+            request.url = requests[0].url;
+            ranges_start = requests[0].range.split("-")
+            ranges_end = requests[requests.length-1].range.split("-")
+            request.range = ranges_start[0]+"-"+ranges_end[1]
+            request.type = requests[0].type
+            request.streamType = requests[0].streamType
+            request.startTime = requests[0].startTime
+            request.duration = duration 
+            self.debug.log("MA: Creating pipelined request "+ request.requests.length + " range "+ request.range)
+            return request;
+        },
+
+        loadNextFragments = function (numPipeline) {
+           //var deferred = Q.defer(),
+           var answer = [],
+           self = this;
+
+           self.debug.log("MA: About to define loop")
+           var loop = function() {
+              return loadNextFragment.call(self).then(function (request) { 
+                answer.push(request)
+                self.debug.log("MA: load next fragments push " + answer.length + " numPipe "+ numPipeline)
+                if (answer.length < numPipeline) {
+                  //loop.cal
+                  return self.indexHandler.getNextSegmentRequest(currentRepresentation).then(loop.bind(self))
+                  //return Q.fcall(loop.bind(self))
+                }
+                else {
+                  self.debug.log("MA: load next fragments resolved ", answer.length)
+                  //deferred.resolve(answer)
+                  return answer
+                }
+              })
+           };
+
+           //self.debug.log("MA: About to call first loop")
+           return loop.call(self);
+
+           //return deferred.promise
+        },
+
         loadNextFragment = function () {
             var promise,
                 self = this;
@@ -984,15 +1057,27 @@ MediaPlayer.dependencies.BufferController = function () {
             return deferred.promise;
         },
 
+        numFragmentsPipeline = function() {
+          return 2
+        },
+
         requestNewFragment = function() {
             var self = this,
                 pendingRequests = self.fragmentController.getPendingRequests(self),
                 loadingRequests = self.fragmentController.getLoadingRequests(self),
-                ln = (pendingRequests ? pendingRequests.length : 0) + (loadingRequests ? loadingRequests.length : 0);
+                ln = (pendingRequests ? pendingRequests.length : 0) + (loadingRequests ? loadingRequests.length : 0),
+                numPipeline = 1;
 
             if ((fragmentsToLoad - ln) > 0) {
-                fragmentsToLoad--;
-                loadNextFragment.call(self).then(onFragmentRequest.bind(self));
+                numPipeline = numFragmentsPipeline();
+                fragmentsToLoad -= numPipeline;
+                
+                if (numPipeline == 1) {
+                  loadNextFragment.call(self).then(onFragmentRequest.bind(self));
+                } else {
+                  self.debug.log("MA: About to call loadNextFragments")
+                  loadNextFragments.call(self, numPipeline).then(createPipelinedRequest.bind(self)).then(onFragmentRequest.bind(self))
+                }
             } else {
 
                 if (state === VALIDATING) {
@@ -1078,6 +1163,7 @@ MediaPlayer.dependencies.BufferController = function () {
                     }
                 ).then(
                     function (count) {
+                      self.debug.log("In validation couunt"+count+" "+fragmentsToLoad)
                         fragmentsToLoad = count;
                         loadInitialization.call(self).then(
                             function (request) {
@@ -1096,6 +1182,7 @@ MediaPlayer.dependencies.BufferController = function () {
                         );
                         // We should request the media fragment w/o waiting for the next validate call
                         // or until the initialization fragment has been loaded
+                        self.debug.log("Requesting New Fragment Validation")
                         requestNewFragment.call(self);
                     }
                 );

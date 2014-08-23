@@ -37,3 +37,31 @@ MediaPlayer.vo.SegmentRequest.prototype = {
     ACTION_DOWNLOAD: "download",
     ACTION_COMPLETE: "complete"
 };
+
+MediaPlayer.vo.PipelinedSegmentRequest = function () {
+    "use strict";
+    this.action = "download";
+    this.startTime = NaN;
+    this.streamType = null;
+    this.type = null;
+    this.duration = NaN;
+    this.timescale = NaN;
+    this.range = null;
+    this.url = null;
+    this.requestStartDate = null;
+    this.firstByteDate = null;
+    this.requestEndDate = null;
+    this.deferred = null;
+    this.quality = NaN;
+    this.index = NaN;
+    this.availabilityStartTime = null;
+    this.availabilityEndTime = null;
+    this.wallStartTime = null;
+    this.requests = null
+};
+
+MediaPlayer.vo.PipelinedSegmentRequest.prototype = {
+    constructor: MediaPlayer.vo.PipelinedSegmentRequest,
+    ACTION_DOWNLOAD: "download",
+    ACTION_COMPLETE: "complete"
+};
